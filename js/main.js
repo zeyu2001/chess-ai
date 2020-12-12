@@ -195,7 +195,7 @@ function minimax(game, depth, alpha, beta, isMaximizingPlayer, sum, color)
         // Note: in our case, the 'children' are simply modified game states
         var currPrettyMove = game.ugly_move(currMove);
         var newSum = evaluateBoard(currPrettyMove, sum, color);
-        var [childBestMove, childValue] = minimax(game, depth - 1, alpha, beta, false, newSum, color);
+        var [childBestMove, childValue] = minimax(game, depth - 1, alpha, beta, !isMaximizingPlayer, newSum, color);
         
         game.undo();
     

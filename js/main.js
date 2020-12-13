@@ -8,7 +8,6 @@ var $board = $('#myBoard')
 var game = new Chess()
 var globalSum = 0                     // always from black's perspective. Negative for white's perspective.
 var remainingPieces = 32
-var isEndgame = false
 var whiteSquareGrey = '#a9a9a9'
 var blackSquareGrey = '#696969'
 
@@ -118,6 +117,14 @@ function evaluateBoard (move, prevSum, color)
 {
     var from = [8 - parseInt(move.from[1]), move.from.charCodeAt(0) - 'a'.charCodeAt(0)];
     var to = [8 - parseInt(move.to[1]), move.to.charCodeAt(0) - 'a'.charCodeAt(0)];
+
+    // Change endgame behavior for kings
+    if (prevSum < -1500)
+    {
+        if (move.piece === 'k') {move.piece = 'k_e'}
+        else if (move.captured === 'k') {move.captured = 'k_e'}
+    }
+
     if ('captured' in move)
     {
         // Opponent piece was captured (good for us)
@@ -131,24 +138,40 @@ function evaluateBoard (move, prevSum, color)
             prevSum -= (weights[move.captured] + pstSelf[move.color][move.captured][to[0]][to[1]]);
         }
     }
-    
-    if (isEndgame)
-    {
-        if (move.piece === 'k') {move.piece = 'k_e'}
-        else if (move.captured === 'k') {move.captured = 'k_e'}
-    }
 
-    // The moved piece still exists on the updated board, so we only need to update the position value
-    if (move.color !== color)
+    if (move.flags.includes('p'))
     {
-        prevSum += pstSelf[move.color][move.piece][from[0]][from[1]];
-        prevSum -= pstSelf[move.color][move.piece][to[0]][to[1]];
+        // NOTE: promote to queen for simplicity
+        move.promotion = 'q';
+
+        // Our piece was promoted (good for us)
+        if (move.color === color)
+        {
+            prevSum -= (weights[move.piece] + pstSelf[move.color][move.piece][from[0]][from[1]]);
+            prevSum += (weights[move.promotion] + pstSelf[move.color][move.promotion][to[0]][to[1]]);
+        }
+        // Opponent piece was promoted (bad for us)
+        else
+        {
+            prevSum += (weights[move.piece] + pstSelf[move.color][move.piece][from[0]][from[1]]);
+            prevSum -= (weights[move.promotion] + pstSelf[move.color][move.promotion][to[0]][to[1]]);
+        }
     }
     else
     {
-        prevSum -= pstSelf[move.color][move.piece][from[0]][from[1]];
-        prevSum += pstSelf[move.color][move.piece][to[0]][to[1]];
+        // The moved piece still exists on the updated board, so we only need to update the position value
+        if (move.color !== color)
+        {
+            prevSum += pstSelf[move.color][move.piece][from[0]][from[1]];
+            prevSum -= pstSelf[move.color][move.piece][to[0]][to[1]];
+        }
+        else
+        {
+            prevSum -= pstSelf[move.color][move.piece][from[0]][from[1]];
+            prevSum += pstSelf[move.color][move.piece][to[0]][to[1]];
+        }
     }
+    
     return prevSum;
 }
 
@@ -251,13 +274,17 @@ function checkStatus (color) {
     {
         $('#status').html(`It's a <b>draw!</b> (Insufficient Material)`);
     }
-    else if (game.in_draw())
+    else if (game.in_threefold_repetition())
     {
-        $('#status').html(`It's a <b>draw!</b> (50-move Rule)`);
+        $('#status').html(`It's a <b>draw!</b> (Threefold Repetition)`);
     }
     else if (game.in_stalemate())
     {
         $('#status').html(`It's a <b>draw!</b> (Stalemate)`);
+    }
+    else if (game.in_draw())
+    {
+        $('#status').html(`It's a <b>draw!</b> (50-move Rule)`);
     }
     else if (game.in_check())
     {
@@ -270,6 +297,29 @@ function checkStatus (color) {
         return false;
     }
     return true;
+}
+
+function updateAdvantage()
+{
+    if (globalSum > 0)
+    {
+        $('#advantageColor').text('Black');
+        $('#advantageNumber').text(globalSum);
+    }
+    else if (globalSum < 0)
+    {
+        $('#advantageColor').text('White');
+        $('#advantageNumber').text(-globalSum);
+    }
+    else
+    {
+        $('#advantageColor').text('Neither side');
+        $('#advantageNumber').text(globalSum);
+    }
+    $('#advantageBar').attr({
+        "aria-valuenow": `${-globalSum}`,
+        style: `width: ${(-globalSum + 2000) / 4000 * 100}%`,
+    });
 }
 
 /*
@@ -315,35 +365,7 @@ function makeBestMove(color) {
     }
 
     globalSum = evaluateBoard(move, globalSum, 'b');
-
-    if (globalSum > 0)
-    {
-        $('#advantageColor').text('Black');
-        $('#advantageNumber').text(globalSum);
-    }
-    else if (globalSum < 0)
-    {
-        $('#advantageColor').text('White');
-        $('#advantageNumber').text(-globalSum);
-    }
-    else
-    {
-        $('#advantageColor').text('Neither side');
-        $('#advantageNumber').text(globalSum);
-    }
-    $('#advantageBar').attr({
-        "aria-valuenow": `${-globalSum}`,
-        style: `width: ${(-globalSum + 2000) / 4000 * 100}%`,
-    });
-
-    if ('captured' in move)
-    {
-        remainingPieces--;
-        if (remainingPieces <= 10)
-        {
-            isEndgame = true;
-        }
-    }
+    updateAdvantage();
 
     game.move(move);
     board.position(game.fen());
@@ -418,8 +440,9 @@ function onDrop (source, target) {
 
     // Illegal move
     if (move === null) return 'snapback'
-
+    
     globalSum = evaluateBoard(move, globalSum, 'b');
+    updateAdvantage();
 
     // Highlight latest move
     $board.find('.' + squareClass).removeClass('highlight-white')
@@ -482,7 +505,6 @@ function reset() {
     game.reset();
     globalSum = 0;
     remainingPieces = 32;
-    isEndgame = false;
     $board.find('.' + squareClass).removeClass('highlight-white');
     $board.find('.' + squareClass).removeClass('highlight-black');
     board.position(game.fen());

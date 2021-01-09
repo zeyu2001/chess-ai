@@ -1,13 +1,16 @@
 /* 
  * A simple chess AI, by someone who doesn't know how to play chess.
  * Uses the chessboard.js and chess.js libraries.
+ * 
+ * Copyright (c) 2020 Zhang Zeyu
  */
+
+var STACK_SIZE = 100;                 // maximum size of undo stack
 
 var board = null
 var $board = $('#myBoard')
 var game = new Chess()
 var globalSum = 0                     // always from black's perspective. Negative for white's perspective.
-var remainingPieces = 32
 var whiteSquareGrey = '#a9a9a9'
 var blackSquareGrey = '#696969'
 
@@ -15,6 +18,19 @@ var squareClass = 'square-55d63'
 var squareToHighlight = null
 var colorToHighlight = null
 var positionCount;
+
+var config = {
+    draggable: true,
+    position: 'start',
+    onDragStart: onDragStart,
+    onDrop: onDrop,
+    onMouseoutSquare: onMouseoutSquare,
+    onMouseoverSquare: onMouseoverSquare,
+    onSnapEnd: onSnapEnd,
+}
+board = Chessboard('myBoard', config)
+
+timer = null;
 
 /* 
  * Piece Square Tables, adapted from Sunfish.py:
@@ -323,7 +339,7 @@ function updateAdvantage()
 }
 
 /*
- * Calculates the best legal move for black. 
+ * Calculates the best legal move for the given color.
  */
 function getBestMove (game, color, currSum) {
 
@@ -399,6 +415,153 @@ function makeBestMove(color) {
 }
 
 /* 
+ * Plays Computer vs. Computer, starting with a given color.
+ */
+function compVsComp(color)
+{
+    if (!checkStatus({'w': 'white', 'b': 'black'}[color]))
+    {
+        timer = window.setTimeout(function () {
+            makeBestMove(color);
+            if (color === 'w') {color = 'b'}
+            else {color = 'w'}
+            compVsComp(color);   
+        }, 250);
+    }
+}
+
+/*
+ * Resets the game to its initial state.
+ */
+function reset() {
+    game.reset();
+    globalSum = 0;
+    $board.find('.' + squareClass).removeClass('highlight-white');
+    $board.find('.' + squareClass).removeClass('highlight-black');
+    $board.find('.' + squareClass).removeClass('highlight-hint')
+    board.position(game.fen());
+    $('#advantageColor').text('Neither side');
+    $('#advantageNumber').text(globalSum);
+
+    // Kill the Computer vs. Computer callback
+    if (timer)
+    {
+        clearTimeout(timer);
+        timer = null;
+    }
+}
+
+/* 
+ * Event listeners for various buttons.
+ */
+$('#ruyLopezBtn').on('click', function () {
+    reset();
+    game.load('r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 1');
+    board.position(game.fen());
+    window.setTimeout(function() {makeBestMove('b')}, 250)
+})
+$('#italianGameBtn').on('click', function() {
+    reset();
+    game.load('r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 1');
+    board.position(game.fen());
+    window.setTimeout(function() {makeBestMove('b')}, 250)
+})
+$('#sicilianDefenseBtn').on('click', function() {
+    reset();
+    game.load('rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 1');
+    board.position(game.fen());
+})
+$('#startBtn').on('click', function() {
+    reset();
+})
+
+$('#compVsCompBtn').on('click', function() {
+    reset();
+    compVsComp('w');
+})
+$('#resetBtn').on('click', function() {
+    reset();
+})
+
+var undo_stack = [];
+
+function undo()
+{
+    var move = game.undo();
+    undo_stack.push(move);
+
+    // Maintain a maximum stack size
+    if (undo_stack.length > STACK_SIZE)
+    {
+        undo_stack.shift();
+    }
+    board.position(game.fen());
+}
+
+$('#undoBtn').on('click', function() {
+
+    if (game.history().length >= 2)
+    {
+        $board.find('.' + squareClass).removeClass('highlight-white');
+        $board.find('.' + squareClass).removeClass('highlight-black');
+        $board.find('.' + squareClass).removeClass('highlight-hint');
+
+        // Undo twice: Opponent's latest move, followed by player's latest move
+        undo();
+        window.setTimeout(function() {
+            undo();
+            window.setTimeout(function () {showHint()}, 250)
+        }, 250);
+    }
+    else
+    {
+        alert("Nothing to undo.");
+    }  
+})
+
+function redo()
+{
+    game.move(undo_stack.pop());
+    board.position(game.fen());
+}
+
+$('#redoBtn').on('click', function() {
+
+    if (undo_stack.length >= 2)
+    {
+        // Redo twice: Player's last move, followed by opponent's last move
+        redo();
+        window.setTimeout(function(){
+            redo();
+            window.setTimeout(function () {showHint()}, 250)
+        }, 250);
+    }
+    else
+    {
+        alert("Nothing to redo.");
+    }
+})
+
+$('#showHint').change(function() {
+    window.setTimeout(showHint, 250);
+})
+
+function showHint() 
+{
+    var showHint = document.getElementById("showHint");
+    $board.find('.' + squareClass).removeClass('highlight-hint');
+
+    // Show hint (best move for white)
+    if (showHint.checked)
+    {
+        var move = getBestMove(game, 'w', -globalSum)[0];
+
+        $board.find('.square-' + move.from).addClass('highlight-hint');
+        $board.find('.square-' + move.to).addClass('highlight-hint');
+    }
+}
+
+/* 
  * The remaining code is adapted from chessboard.js examples #5000 through #5005:
  * https://chessboardjs.com/examples#5000
  */
@@ -429,6 +592,7 @@ function onDragStart (source, piece) {
 }
 
 function onDrop (source, target) {
+    undo_stack = [];
     removeGreySquares();
 
     // see if the move is legal
@@ -446,6 +610,7 @@ function onDrop (source, target) {
 
     // Highlight latest move
     $board.find('.' + squareClass).removeClass('highlight-white')
+    
     $board.find('.square-' + move.from).addClass('highlight-white')
     squareToHighlight = move.to
     colorToHighlight = 'white'
@@ -456,9 +621,13 @@ function onDrop (source, target) {
     if (!checkStatus('black'));
     {
         // Make the best move for black
-        window.setTimeout(function() {makeBestMove('b')}, 250)
-    }
-
+        window.setTimeout(function() {
+            makeBestMove('b');
+            window.setTimeout(function() {
+                showHint();
+            }, 250);
+        }, 250)
+    } 
 }
 
 function onMouseoverSquare (square, piece) {
@@ -487,76 +656,3 @@ function onMouseoutSquare (square, piece) {
 function onSnapEnd () {
     board.position(game.fen())
 }
-
-var config = {
-    draggable: true,
-    position: 'start',
-    onDragStart: onDragStart,
-    onDrop: onDrop,
-    onMouseoutSquare: onMouseoutSquare,
-    onMouseoverSquare: onMouseoverSquare,
-    onSnapEnd: onSnapEnd,
-}
-board = Chessboard('myBoard', config)
-
-timer = null;
-
-function reset() {
-    game.reset();
-    globalSum = 0;
-    remainingPieces = 32;
-    $board.find('.' + squareClass).removeClass('highlight-white');
-    $board.find('.' + squareClass).removeClass('highlight-black');
-    board.position(game.fen());
-    $('#advantageColor').text('Neither side');
-    $('#advantageNumber').text(globalSum);
-
-    // Kill the Computer vs. Computer callback
-    if (timer)
-    {
-        clearTimeout(timer);
-        timer = null;
-    }
-}
-
-$('#ruyLopezBtn').on('click', function () {
-    reset();
-    game.load('r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 1');
-    board.position(game.fen());
-    window.setTimeout(function() {makeBestMove('b')}, 250)
-})
-$('#italianGameBtn').on('click', function() {
-    reset();
-    game.load('r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 1');
-    board.position(game.fen());
-    window.setTimeout(function() {makeBestMove('b')}, 250)
-})
-$('#sicilianDefenseBtn').on('click', function() {
-    reset();
-    game.load('rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 1');
-    board.position(game.fen());
-})
-$('#startBtn').on('click', function() {
-    reset();
-})
-
-function compVsComp(color)
-{
-    if (!checkStatus({'w': 'white', 'b': 'black'}[color]))
-    {
-        timer = window.setTimeout(function () {
-            makeBestMove(color);
-            if (color === 'w') {color = 'b'}
-            else {color = 'w'}
-            compVsComp(color);   
-        }, 250);
-    }
-}
-
-$('#compVsCompBtn').on('click', function() {
-    reset();
-    compVsComp('w');
-})
-$('#resetBtn').on('click', function() {
-    reset();
-})

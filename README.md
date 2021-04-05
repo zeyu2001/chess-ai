@@ -1,5 +1,5 @@
 # chess-ai
-A chess engine by someone who doesn't know how to play chess.
+A chess engine by someone who doesn'r know Python very well
 
 ## About
 chess-ai is a simple chess AI in JavaScript. 

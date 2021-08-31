@@ -130,16 +130,22 @@ var pstSelf = { w: pst_w, b: pst_b };
  * using the material weights and piece square tables.
  */
 function evaluateBoard(game, move, prevSum, color) {
-  // Change evaluation for when the king's in danger
+
   if (game.in_checkmate()) {
+
     // Opponent is in checkmate (good for us)
     if (move.color === color) {
-      return Number.POSITIVE_INFINITY;
+      return 10 ** 10;
     }
     // Our king's in checkmate (bad for us)
     else {
-      return Number.NEGATIVE_INFINITY;
+      return -(10 ** 10);
     }
+  }
+
+  if (game.in_draw() || game.in_threefold_repetition() || game.in_stalemate())
+  {
+    return 0;
   }
 
   if (game.in_check()) {
@@ -386,11 +392,6 @@ function makeBestMove(color) {
     var move = getBestMove(game, color, globalSum)[0];
   } else {
     var move = getBestMove(game, color, -globalSum)[0];
-  }
-  // Resign if checkmate is unavoidable
-  if (move === undefined) {
-    alert('AI resigned. You won!');
-    return null;
   }
 
   globalSum = evaluateBoard(game, move, globalSum, 'b');
